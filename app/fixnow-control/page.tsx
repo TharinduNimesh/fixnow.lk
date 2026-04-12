@@ -3,7 +3,7 @@
 import { motion } from "framer-motion"
 import { Eye, EyeOff, Lock } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { useState } from "react"
+import { Suspense, useState } from "react"
 import { toast } from "sonner"
 
 import { Logo } from "@/components/Logo"
@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
-export default function AdminLoginPage() {
+function AdminLoginContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [email, setEmail] = useState("")
@@ -116,5 +116,21 @@ export default function AdminLoginPage() {
         </form>
       </motion.div>
     </div>
+  )
+}
+
+export default function AdminLoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-background p-4">
+          <div className="glass w-full max-w-sm rounded-2xl p-6 text-center text-sm text-muted-foreground">
+            Loading admin login...
+          </div>
+        </div>
+      }
+    >
+      <AdminLoginContent />
+    </Suspense>
   )
 }
