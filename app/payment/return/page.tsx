@@ -108,7 +108,7 @@ function PaymentReturnContent() {
               </Button>
             )}
             <Button asChild variant="outline" className="flex-1">
-              <Link href="/fixnow-control">Admin</Link>
+              <Link href="/">Start Over</Link>
             </Button>
           </div>
         </div>

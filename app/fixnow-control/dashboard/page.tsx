@@ -29,6 +29,7 @@ export default function AdminDashboardPage() {
   const [requests, setRequests] = useState<ServiceRequest[]>([])
   const [loading, setLoading] = useState(false)
   const [updating, setUpdating] = useState(false)
+  const [verifyingPayment, setVerifyingPayment] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
   const [nextStatus, setNextStatus] = useState<RequestStatus>("pending")
   const [updateNote, setUpdateNote] = useState("")
@@ -105,6 +106,9 @@ export default function AdminDashboardPage() {
   }, [search, statusFilter])
 
   const selected = requests.find((request) => request.id === selectedRequest)
+  const canManuallyVerifyPayment =
+    selected?.paymentMethod === "bank-transfer" && selected.paymentStatus === "pending"
+  const canUpdateProgressStatus = selected?.paymentStatus === "verified"
 
   useEffect(() => {
     if (!selected) return
@@ -127,6 +131,11 @@ export default function AdminDashboardPage() {
 
   async function handleUpdateStatuses() {
     if (!selected) return
+
+    if (!canUpdateProgressStatus) {
+      toast.error("Only verified payments can update process status")
+      return
+    }
 
     setUpdating(true)
     try {
@@ -159,6 +168,43 @@ export default function AdminDashboardPage() {
       toast.error("Unable to update request")
     } finally {
       setUpdating(false)
+    }
+  }
+
+  async function handleVerifyPayment() {
+    if (!selected || !canManuallyVerifyPayment) return
+
+    setVerifyingPayment(true)
+    try {
+      const response = await fetch(`/api/admin/requests/${selected.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          paymentStatus: "verified",
+          note: "Bank-transfer payment verified from dashboard",
+        }),
+      })
+
+      const data = await response.json().catch(() => null)
+      if (!response.ok) {
+        if (response.status === 401) {
+          router.push("/fixnow-control")
+          return
+        }
+
+        toast.error(data?.error || "Unable to verify payment")
+        return
+      }
+
+      const updated = data.request as ServiceRequest
+      setRequests((current) => current.map((item) => (item.id === updated.id ? updated : item)))
+      toast.success("Payment verified")
+    } catch {
+      toast.error("Unable to verify payment")
+    } finally {
+      setVerifyingPayment(false)
     }
   }
 
@@ -415,12 +461,28 @@ export default function AdminDashboardPage() {
                     </Button>
                   </a>
                 )}
+                {canManuallyVerifyPayment && (
+                  <Button
+                    size="sm"
+                    disabled={verifyingPayment}
+                    className="gradient-primary w-full text-xs text-primary-foreground"
+                    onClick={handleVerifyPayment}
+                  >
+                    {verifyingPayment ? "Verifying..." : "Mark Payment as Verified"}
+                  </Button>
+                )}
                 <div className="space-y-2 border-t border-border pt-3">
                   <p className="text-xs font-semibold text-muted-foreground">Update Process Status</p>
+                  {!canUpdateProgressStatus && (
+                    <p className="text-xs text-muted-foreground">
+                      Progress status can be updated only after payment is verified.
+                    </p>
+                  )}
                   <select
                     className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
                     value={nextStatus}
                     onChange={(event) => setNextStatus(event.target.value as RequestStatus)}
+                    disabled={!canUpdateProgressStatus || updating}
                   >
                     {(Object.keys(STATUS_CONFIG) as RequestStatus[]).map((status) => (
                       <option key={status} value={status}>
@@ -432,10 +494,11 @@ export default function AdminDashboardPage() {
                     placeholder="Optional update note"
                     value={updateNote}
                     onChange={(event) => setUpdateNote(event.target.value)}
+                    disabled={!canUpdateProgressStatus || updating}
                   />
                   <Button
                     size="sm"
-                    disabled={updating}
+                    disabled={updating || !canUpdateProgressStatus}
                     className="gradient-primary w-full text-xs text-primary-foreground"
                     onClick={handleUpdateStatuses}
                   >

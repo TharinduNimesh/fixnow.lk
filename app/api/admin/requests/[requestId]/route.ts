@@ -15,6 +15,7 @@ const requestStatusSchema = z.enum([
 
 const updateSchema = z.object({
   status: requestStatusSchema.optional(),
+  paymentStatus: z.literal("verified").optional(),
   note: z.string().trim().max(500).optional(),
 })
 
@@ -32,13 +33,44 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ re
     return NextResponse.json({ error: "Invalid payload", issues: parsed.error.flatten() }, { status: 400 })
   }
 
-  const { status, note } = parsed.data
-  if (!status) {
-    return NextResponse.json({ error: "Status is required" }, { status: 400 })
+  const { status, paymentStatus, note } = parsed.data
+  if (!status && !paymentStatus) {
+    return NextResponse.json({ error: "Status or paymentStatus is required" }, { status: 400 })
   }
 
   const supabase = createSupabaseAdminClient()
-  const updateData: { request_status: string } = { request_status: status }
+  const { data: existingRequest, error: fetchError } = await supabase
+    .from("service_requests")
+    .select("*")
+    .eq("id", requestId)
+    .single()
+
+  if (fetchError || !existingRequest) {
+    return NextResponse.json({ error: "Request not found" }, { status: 404 })
+  }
+
+  if (paymentStatus) {
+    if (existingRequest.payment_method !== "bank-transfer") {
+      return NextResponse.json({ error: "Only bank-transfer payments can be manually verified" }, { status: 400 })
+    }
+
+    if (existingRequest.payment_status !== "pending") {
+      return NextResponse.json({ error: "Only pending bank-transfer payments can be verified" }, { status: 400 })
+    }
+  }
+
+  const effectivePaymentStatus = paymentStatus || existingRequest.payment_status
+  if (status && effectivePaymentStatus !== "verified") {
+    return NextResponse.json({ error: "Only verified payments can move request status" }, { status: 400 })
+  }
+
+  const updateData: { request_status?: string; payment_status?: "verified" } = {}
+  if (status) {
+    updateData.request_status = status
+  }
+  if (paymentStatus) {
+    updateData.payment_status = "verified"
+  }
 
   const { data, error } = await supabase
     .from("service_requests")
@@ -53,11 +85,16 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ re
 
   await supabase.from("request_events").insert({
     request_id: data.id,
-    event_type: "admin_status_update",
-    note: note || "Request status updated from admin dashboard",
+    event_type: paymentStatus ? "admin_payment_verified" : "admin_status_update",
+    note:
+      note ||
+      (paymentStatus
+        ? "Bank-transfer payment manually verified by admin"
+        : "Request status updated from admin dashboard"),
     created_by: user.email || user.id,
     payload: {
-      status,
+      status: status || null,
+      paymentStatus: paymentStatus || null,
     },
   })
 
