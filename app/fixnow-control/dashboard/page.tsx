@@ -10,7 +10,7 @@ import { Logo } from "@/components/Logo"
 import { StatusBadge } from "@/components/StatusBadge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { SERVICES, STATUS_CONFIG, type RequestStatus, type ServiceRequest } from "@/lib/pricing"
+import { getServiceById, STATUS_CONFIG, type RequestStatus, type ServiceRequest } from "@/lib/pricing"
 
 function formatDate(value?: string) {
   if (!value) return "-"
@@ -293,7 +293,7 @@ export default function AdminDashboardPage() {
                 </thead>
                 <tbody>
                   {requests.map((request, index) => {
-                    const service = SERVICES.find((entry) => entry.id === request.serviceId)
+                    const service = getServiceById(request.serviceId)
                     const serviceLabel =
                       request.serviceId === "other"
                         ? request.customServiceName || "Other Service"
@@ -391,11 +391,11 @@ export default function AdminDashboardPage() {
               </div>
               <div className="space-y-3">
                 <div className="flex items-center gap-2 text-sm">
-                  <span className="text-lg">{SERVICES.find((entry) => entry.id === selected.serviceId)?.icon}</span>
+                  <span className="text-lg">{getServiceById(selected.serviceId)?.icon}</span>
                   <span className="font-medium text-foreground">
                     {selected.serviceId === "other"
                       ? selected.customServiceName || "Other Service"
-                      : SERVICES.find((entry) => entry.id === selected.serviceId)?.label}
+                      : getServiceById(selected.serviceId)?.label}
                   </span>
                 </div>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">

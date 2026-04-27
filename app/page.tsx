@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Building2,
+  Check,
   CalendarDays,
   CheckCircle2,
   Clock,
@@ -27,7 +28,9 @@ import { Textarea } from "@/components/ui/textarea"
 import {
   BANK_INFO,
   calculateCost,
+  DISTANCE_FROM_BORELLA_OPTIONS,
   DURATION_OPTIONS,
+  getServiceById,
   SERVICES,
   URGENCY_OPTIONS,
 } from "@/lib/pricing"
@@ -40,14 +43,20 @@ type RequestFormState = {
   requesterName: string
   requesterEmail: string
   requesterPhone: string
+  requesterPhoneSecondary: string
   requesterAddress: string
   requesterCity: string
   service: string
   customServiceName: string
+  workersNeeded: string
+  distanceFromBorella: string
   urgency: string
-  scheduledDate: string
+  scheduledDates: string[]
   duration: string
   otherInfo: string
+  needsSupervisor: boolean
+  termsAccepted: boolean
+  attachments: File[]
   paymentMethod: PaymentMethod
   receiptFile: File | null
 }
@@ -62,28 +71,38 @@ export default function HomePage() {
   const [submitted, setSubmitted] = useState(false)
   const [trackingId, setTrackingId] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [scheduleDateInput, setScheduleDateInput] = useState("")
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const attachmentInputRef = useRef<HTMLInputElement>(null)
 
   const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5MB
+  const MAX_ATTACHMENT_FILE_SIZE = 3 * 1024 * 1024 // 3MB
+  const MAX_ATTACHMENT_FILES = 5
 
   const [form, setForm] = useState<RequestFormState>({
     requesterName: "",
     requesterEmail: "",
     requesterPhone: "",
+    requesterPhoneSecondary: "",
     requesterAddress: "",
     requesterCity: "",
     service: "",
     customServiceName: "",
+    workersNeeded: "",
+    distanceFromBorella: "",
     urgency: "",
-    scheduledDate: "",
+    scheduledDates: [],
     duration: "",
     otherInfo: "",
+    needsSupervisor: false,
+    termsAccepted: false,
+    attachments: [],
     paymentMethod: "",
     receiptFile: null,
   })
 
   function getServiceLabel() {
-    const selectedService = SERVICES.find((service) => service.id === form.service)
+    const selectedService = getServiceById(form.service)
     return form.service === "other"
       ? form.customServiceName || "Other Service"
       : selectedService?.label || "Service"
@@ -117,6 +136,78 @@ export default function HomePage() {
     if (fileInputRef.current) fileInputRef.current.value = ""
   }
 
+  function addScheduledDate() {
+    if (!scheduleDateInput) return
+
+    setForm((current) => {
+      if (current.scheduledDates.includes(scheduleDateInput)) {
+        toast.error("This date is already selected")
+        return current
+      }
+
+      return {
+        ...current,
+        scheduledDates: [...current.scheduledDates, scheduleDateInput].sort(),
+      }
+    })
+
+    setScheduleDateInput("")
+  }
+
+  function removeScheduledDate(date: string) {
+    setForm((current) => ({
+      ...current,
+      scheduledDates: current.scheduledDates.filter((item) => item !== date),
+    }))
+  }
+
+  function handleAttachmentChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const selectedFiles = Array.from(event.target.files || [])
+    if (selectedFiles.length === 0) return
+
+    setForm((current) => {
+      const availableSlots = MAX_ATTACHMENT_FILES - current.attachments.length
+      if (availableSlots <= 0) {
+        toast.error(`You can upload up to ${MAX_ATTACHMENT_FILES} files only.`)
+        return current
+      }
+
+      const nextFiles: File[] = []
+      for (const file of selectedFiles.slice(0, availableSlots)) {
+        const allowedTypes = ["image/png", "image/jpeg", "application/pdf"]
+        if (!allowedTypes.includes(file.type)) {
+          toast.error(`${file.name}: only PNG, JPG, or PDF files are allowed.`)
+          continue
+        }
+
+        if (file.size > MAX_ATTACHMENT_FILE_SIZE) {
+          toast.error(`${file.name}: file size must be 3MB or less.`)
+          continue
+        }
+
+        nextFiles.push(file)
+      }
+
+      if (nextFiles.length === 0) return current
+
+      return {
+        ...current,
+        attachments: [...current.attachments, ...nextFiles],
+      }
+    })
+
+    if (attachmentInputRef.current) {
+      attachmentInputRef.current.value = ""
+    }
+  }
+
+  function removeAttachment(index: number) {
+    setForm((current) => ({
+      ...current,
+      attachments: current.attachments.filter((_, itemIndex) => itemIndex !== index),
+    }))
+  }
+
   function postPayHere(payload: PayHerePayload) {
     const formElement = document.createElement("form")
     formElement.method = "POST"
@@ -134,19 +225,25 @@ export default function HomePage() {
     formElement.submit()
   }
 
-  const cost = calculateCost(form.service, form.urgency, form.duration)
+  const cost = calculateCost(form.service, form.urgency, form.duration, {
+    workersNeeded: Number(form.workersNeeded) || 0,
+    needsSupervisor: form.needsSupervisor,
+    scheduledDates: form.scheduledDates,
+  })
 
-  const canProceedStep0 = !!form.service
+  const canProceedStep0 = !!form.service && Number(form.workersNeeded) >= 1
   const canProceedStep1 =
     form.requesterName &&
     form.requesterEmail &&
     form.requesterPhone &&
+    form.requesterPhoneSecondary &&
     form.requesterAddress &&
     form.requesterCity &&
+    form.distanceFromBorella &&
     form.urgency &&
-    form.duration &&
+    (form.urgency === "specific-date" ? form.scheduledDates.length > 0 : !!form.duration) &&
     (form.service !== "other" || form.customServiceName.trim().length > 0) &&
-    (form.urgency !== "specific-date" || form.scheduledDate)
+    form.termsAccepted
   const canSubmit =
     !!form.paymentMethod &&
     (form.paymentMethod === "card" || (form.paymentMethod === "bank-transfer" && form.receiptFile))
@@ -168,14 +265,19 @@ export default function HomePage() {
           requesterName: form.requesterName,
           requesterEmail: form.requesterEmail,
           requesterPhone: form.requesterPhone,
+          requesterPhoneSecondary: form.requesterPhoneSecondary,
           requesterAddress: form.requesterAddress,
           requesterCity: form.requesterCity,
           serviceId: form.service,
           customServiceName: form.customServiceName,
+          workersNeeded: Number(form.workersNeeded),
+          distanceFromBorella: form.distanceFromBorella,
           urgency: form.urgency,
-          scheduledDate: form.scheduledDate,
-          duration: form.duration,
+          scheduledDates: form.scheduledDates,
+          duration: form.urgency === "specific-date" ? "full-day" : form.duration,
           otherInfo: form.otherInfo,
+          needsSupervisor: form.needsSupervisor,
+          termsAccepted: form.termsAccepted,
           paymentMethod: form.paymentMethod,
           sourcePath: window.location.pathname,
         }),
@@ -189,6 +291,27 @@ export default function HomePage() {
       }
 
       setTrackingId(createdData.request.trackingId)
+
+      if (form.attachments.length > 0) {
+        const attachmentFormData = new FormData()
+        form.attachments.forEach((file) => {
+          attachmentFormData.append("attachments", file)
+        })
+
+        const attachmentUploadResponse = await fetch(
+          `/api/requests/${createdData.request.trackingId}/attachments`,
+          {
+            method: "POST",
+            body: attachmentFormData,
+          },
+        )
+
+        const attachmentResult = await attachmentUploadResponse.json()
+        if (!attachmentUploadResponse.ok) {
+          toast.dismiss(loadingToastId)
+          throw new Error(attachmentResult?.error || "Failed to upload attachments")
+        }
+      }
        // Upload receipt for bank-transfer payments
        if (form.paymentMethod === "bank-transfer" && form.receiptFile) {
          toast.dismiss(loadingToastId)
@@ -327,7 +450,7 @@ export default function HomePage() {
                   Select the type of worker you&apos;re looking for
                 </p>
               </div>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
                 {SERVICES.map((service) => (
                   <ServiceCard
                     key={service.id}
@@ -337,6 +460,22 @@ export default function HomePage() {
                     onClick={() => setForm((current) => ({ ...current, service: service.id }))}
                   />
                 ))}
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="workers-needed">How many workers do you need? *</Label>
+                <Input
+                  id="workers-needed"
+                  type="number"
+                  min={1}
+                  max={50}
+                  placeholder="Enter number of workers"
+                  value={form.workersNeeded}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, workersNeeded: event.target.value }))
+                  }
+                />
+                <p className="text-xs text-muted-foreground">Please enter a number from 1 to 50.</p>
               </div>
             </motion.div>
           )}
@@ -368,7 +507,7 @@ export default function HomePage() {
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor="mobile">Mobile Number *</Label>
+                    <Label htmlFor="mobile">Primary Mobile Number *</Label>
                     <Input
                       id="mobile"
                       placeholder="+94 7X XXXXXXX"
@@ -378,6 +517,17 @@ export default function HomePage() {
                       }
                     />
                   </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="mobile-secondary">Secondary Mobile Number *</Label>
+                  <Input
+                    id="mobile-secondary"
+                    placeholder="+94 7X XXXXXXX"
+                    value={form.requesterPhoneSecondary}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, requesterPhoneSecondary: event.target.value }))
+                    }
+                  />
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="email">Email Address *</Label>
@@ -457,49 +607,87 @@ export default function HomePage() {
                 </div>
 
                 {form.urgency === "specific-date" && (
-                  <div className="space-y-1.5">
-                    <Label htmlFor="date">Select Date *</Label>
-                    <Input
-                      id="date"
-                      type="date"
-                      value={form.scheduledDate}
-                      onChange={(event) =>
-                        setForm((current) => ({ ...current, scheduledDate: event.target.value }))
-                      }
-                    />
+                  <div className="space-y-3">
+                    <Label htmlFor="date">Select Work Dates * (Full Day - 8 Hours each)</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        id="date"
+                        type="date"
+                        value={scheduleDateInput}
+                        onChange={(event) => setScheduleDateInput(event.target.value)}
+                        min={new Date().toISOString().split("T")[0]}
+                      />
+                      <Button type="button" variant="outline" onClick={addScheduledDate}>
+                        Add Date
+                      </Button>
+                    </div>
+                    {form.scheduledDates.length > 0 && (
+                      <div className="space-y-2">
+                        <p className="text-xs text-muted-foreground">
+                          Selected dates ({form.scheduledDates.length})
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          {form.scheduledDates.map((date) => (
+                            <span
+                              key={date}
+                              className="inline-flex items-center gap-2 rounded-full bg-secondary px-3 py-1 text-xs font-medium text-foreground"
+                            >
+                              {date}
+                              <button
+                                type="button"
+                                onClick={() => removeScheduledDate(date)}
+                                className="rounded-full p-0.5 text-muted-foreground hover:bg-destructive/15 hover:text-destructive"
+                                aria-label={`Remove ${date}`}
+                              >
+                                <X size={12} />
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
-                <div className="space-y-2">
-                  <Label>Work Duration *</Label>
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                    {DURATION_OPTIONS.map((duration) => (
-                      <button
-                        key={duration.id}
-                        onClick={() => setForm((current) => ({ ...current, duration: duration.id }))}
-                        className={`rounded-xl border-2 p-3 text-center transition-all ${
-                          form.duration === duration.id
-                            ? "border-primary bg-secondary"
-                            : "border-border hover:border-primary/40"
-                        }`}
-                      >
-                        <CalendarDays
-                          size={16}
-                          className={`mx-auto mb-1 ${
-                            form.duration === duration.id ? "text-primary" : "text-muted-foreground"
-                          }`}
-                        />
-                        <span
-                          className={`block text-xs font-medium ${
-                            form.duration === duration.id ? "text-primary" : "text-foreground"
+                {form.urgency !== "specific-date" ? (
+                  <div className="space-y-2">
+                    <Label>Work Duration *</Label>
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                      {DURATION_OPTIONS.map((duration) => (
+                        <button
+                          key={duration.id}
+                          onClick={() => setForm((current) => ({ ...current, duration: duration.id }))}
+                          className={`rounded-xl border-2 p-3 text-center transition-all ${
+                            form.duration === duration.id
+                              ? "border-primary bg-secondary"
+                              : "border-border hover:border-primary/40"
                           }`}
                         >
-                          {duration.label}
-                        </span>
-                      </button>
-                    ))}
+                          <CalendarDays
+                            size={16}
+                            className={`mx-auto mb-1 ${
+                              form.duration === duration.id ? "text-primary" : "text-muted-foreground"
+                            }`}
+                          />
+                          <span
+                            className={`block text-xs font-medium ${
+                              form.duration === duration.id ? "text-primary" : "text-foreground"
+                            }`}
+                          >
+                            {duration.label}
+                          </span>
+                          <span className="mt-1 block text-[10px] text-muted-foreground">
+                            LKR {duration.price.toLocaleString()}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="rounded-xl border border-border bg-secondary/50 p-3 text-xs text-muted-foreground">
+                    Scheduled work is billed as full-day (8 hours) for each selected date.
+                  </div>
+                )}
 
                 {cost > 0 && (
                   <motion.div
@@ -515,10 +703,10 @@ export default function HomePage() {
                 )}
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="other">Additional Information (Optional)</Label>
+                  <Label htmlFor="other">Expected Work Done (Optional)</Label>
                   <Textarea
                     id="other"
-                    placeholder="Any specific requirements..."
+                    placeholder="Describe what should be completed..."
                     value={form.otherInfo}
                     onChange={(event) =>
                       setForm((current) => ({ ...current, otherInfo: event.target.value }))
@@ -526,6 +714,130 @@ export default function HomePage() {
                     rows={3}
                   />
                 </div>
+
+                <div className="space-y-2">
+                  <Label>Attachments (Optional)</Label>
+                  <div className="space-y-2 rounded-xl border border-border p-4">
+                    {form.attachments.length > 0 ? (
+                      <div className="space-y-2">
+                        {form.attachments.map((file, index) => (
+                          <div
+                            key={`${file.name}-${index}`}
+                            className="flex items-center justify-between rounded-lg bg-secondary px-3 py-2"
+                          >
+                            <div>
+                              <p className="text-sm font-medium text-foreground">{file.name}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {(file.size / 1024 / 1024).toFixed(2)}MB
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => removeAttachment(index)}
+                              className="rounded-md p-1 hover:bg-destructive/15"
+                              aria-label={`Remove ${file.name}`}
+                            >
+                              <X size={16} className="text-destructive" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">No attachments added yet.</p>
+                    )}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full"
+                      onClick={() => attachmentInputRef.current?.click()}
+                    >
+                      <Upload size={16} className="mr-2" />
+                      Upload Files
+                    </Button>
+                    <p className="text-xs text-muted-foreground">
+                      Maximum 5 files, each up to 3MB (PNG, JPG, PDF)
+                    </p>
+                    <input
+                      ref={attachmentInputRef}
+                      type="file"
+                      accept=".png,.jpg,.jpeg,.pdf"
+                      multiple
+                      className="hidden"
+                      onChange={handleAttachmentChange}
+                      aria-label="Upload attachments"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Distance From Borella *</Label>
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+                    {DISTANCE_FROM_BORELLA_OPTIONS.map((distance) => (
+                      <button
+                        key={distance.id}
+                        type="button"
+                        onClick={() =>
+                          setForm((current) => ({ ...current, distanceFromBorella: distance.id }))
+                        }
+                        className={`rounded-xl border-2 p-3 text-center transition-all ${
+                          form.distanceFromBorella === distance.id
+                            ? "border-primary bg-secondary"
+                            : "border-border hover:border-primary/40"
+                        }`}
+                      >
+                        <span
+                          className={`block text-xs font-medium ${
+                            form.distanceFromBorella === distance.id ? "text-primary" : "text-foreground"
+                          }`}
+                        >
+                          {distance.label}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setForm((current) => ({ ...current, needsSupervisor: !current.needsSupervisor }))
+                  }
+                  className={`flex w-full items-center justify-between rounded-xl border p-4 text-left transition-all ${
+                    form.needsSupervisor ? "border-primary bg-secondary" : "border-border hover:border-primary/40"
+                  }`}
+                >
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">
+                      Do you need a supervisor to monitor work?
+                    </p>
+                    <p className="text-xs text-muted-foreground">LKR 6,000 per day</p>
+                  </div>
+                  <span
+                    className={`inline-flex h-5 w-5 items-center justify-center rounded border ${
+                      form.needsSupervisor ? "border-primary bg-primary text-primary-foreground" : "border-border"
+                    }`}
+                  >
+                    {form.needsSupervisor ? <Check size={12} /> : null}
+                  </span>
+                </button>
+
+                <label className="flex items-start gap-2 rounded-xl border border-border p-3 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={form.termsAccepted}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, termsAccepted: event.target.checked }))
+                    }
+                    className="mt-1"
+                  />
+                  <span className="text-muted-foreground">
+                    I accept the{" "}
+                    <Link href="/terms-and-conditions" target="_blank" className="font-medium text-primary underline">
+                      terms and conditions
+                    </Link>
+                    .
+                  </span>
+                </label>
                 {form.service === "other" && (
                   <div className="space-y-1.5">
                     <Label htmlFor="custom-service">Custom Service Name *</Label>
@@ -564,6 +876,20 @@ export default function HomePage() {
                   </span>
                 </div>
                 <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Workers</span>
+                  <span className="font-medium text-foreground">{form.workersNeeded}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Distance</span>
+                  <span className="font-medium text-foreground">
+                    {
+                      DISTANCE_FROM_BORELLA_OPTIONS.find(
+                        (distance) => distance.id === form.distanceFromBorella,
+                      )?.label
+                    }
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Urgency</span>
                   <span className="font-medium text-foreground">
                     {URGENCY_OPTIONS.find((urgency) => urgency.id === form.urgency)?.label}
@@ -572,7 +898,15 @@ export default function HomePage() {
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Duration</span>
                   <span className="font-medium text-foreground">
-                    {DURATION_OPTIONS.find((duration) => duration.id === form.duration)?.label}
+                    {form.urgency === "specific-date"
+                      ? `${form.scheduledDates.length} day(s) - Full Day (8 Hours)`
+                      : DURATION_OPTIONS.find((duration) => duration.id === form.duration)?.label}
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Supervisor</span>
+                  <span className="font-medium text-foreground">
+                    {form.needsSupervisor ? "Yes (LKR 6,000/day)" : "No"}
                   </span>
                 </div>
                 <div className="flex justify-between border-t border-border pt-3">

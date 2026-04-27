@@ -38,9 +38,18 @@ export async function POST(request: Request) {
 
   const input = parsed.data
   const supabase = createSupabaseAdminClient()
+  const normalizedScheduledDates =
+    input.urgency === "specific-date"
+      ? Array.from(new Set((input.scheduledDates || []).filter(Boolean))).sort()
+      : []
+  const normalizedDuration = input.urgency === "specific-date" ? "full-day" : (input.duration || "full-day")
   // Server-side price calculation from validated inputs
   // Frontend estimate is for UX only; this is the authoritative value stored in DB
-  const totalCost = calculateCost(input.serviceId, input.urgency, input.duration)
+  const totalCost = calculateCost(input.serviceId, input.urgency, normalizedDuration, {
+    workersNeeded: input.workersNeeded,
+    needsSupervisor: input.needsSupervisor,
+    scheduledDates: normalizedScheduledDates,
+  })
   const clientIp = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || null
   const userAgent = request.headers.get("user-agent")
 
@@ -55,8 +64,8 @@ export async function POST(request: Request) {
       service_id: input.serviceId,
       custom_service_name: input.customServiceName || null,
       urgency: input.urgency,
-      scheduled_date: input.scheduledDate || null,
-      duration: input.duration,
+      scheduled_date: normalizedScheduledDates[0] || input.scheduledDate || null,
+      duration: normalizedDuration,
       other_info: input.otherInfo || null,
       payment_method: input.paymentMethod,
       payment_status: input.paymentMethod === "card" ? "initiated" : "pending",
@@ -68,6 +77,12 @@ export async function POST(request: Request) {
       user_agent: userAgent,
       metadata: {
         requestedServiceLabel: input.serviceId,
+        workersNeeded: input.workersNeeded,
+        distanceFromBorella: input.distanceFromBorella,
+        requesterPhoneSecondary: input.requesterPhoneSecondary,
+        scheduledDates: normalizedScheduledDates,
+        needsSupervisor: Boolean(input.needsSupervisor),
+        termsAccepted: true,
       },
     })
     .select("*")
@@ -88,7 +103,11 @@ export async function POST(request: Request) {
       paymentMethod: input.paymentMethod,
       serviceId: input.serviceId,
       urgency: input.urgency,
-      duration: input.duration,
+        duration: normalizedDuration,
+        workersNeeded: input.workersNeeded,
+        distanceFromBorella: input.distanceFromBorella,
+        scheduledDates: normalizedScheduledDates,
+        needsSupervisor: Boolean(input.needsSupervisor),
     },
   })
 

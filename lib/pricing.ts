@@ -1,36 +1,85 @@
 export const SERVICES = [
-  { id: "mechanic", label: "Mechanic", icon: "🔧", baseRate: 3500 },
+  { id: "welder", label: "Welder", icon: "🛠️", baseRate: 3500 },
   { id: "plumber", label: "Plumber", icon: "🪠", baseRate: 3000 },
   { id: "electrician", label: "Electrician", icon: "⚡", baseRate: 3500 },
-  { id: "construction", label: "Construction Worker", icon: "🏗️", baseRate: 2500 },
+  { id: "general-labor", label: "General Labor", icon: "👷", baseRate: 2500 },
   { id: "cleaner", label: "Cleaner", icon: "🧹", baseRate: 2000 },
   { id: "painter", label: "Painter", icon: "🎨", baseRate: 2500 },
-  { id: "carpenter", label: "Carpenter", icon: "🪚", baseRate: 3000 },
-  { id: "gardener", label: "Gardener", icon: "🌿", baseRate: 2000 },
+  { id: "formwork-carpenter", label: "Formwork Carpenter", icon: "🪚", baseRate: 3000 },
+  { id: "steel-worker", label: "Steel Worker", icon: "🏗️", baseRate: 3000 },
+  { id: "mason", label: "Mason", icon: "🧱", baseRate: 2800 },
+  { id: "ceiling-installer", label: "Ceiling Installer", icon: "🪜", baseRate: 2800 },
+  { id: "tile-fixer", label: "Tile Fixer", icon: "🧩", baseRate: 2800 },
+  { id: "aluminum-door-window-technician", label: "Aluminum Door/Window Technician", icon: "🪟", baseRate: 3200 },
+  { id: "bathroom-fitter", label: "Bathroom Fitter", icon: "🚿", baseRate: 3000 },
+  { id: "ac-technician", label: "A/C Technician", icon: "❄️", baseRate: 3200 },
   { id: "other", label: "Other Service", icon: "🧰", baseRate: 3000 },
 ] as const
 
+const SERVICE_ALIASES: Record<string, string> = {
+  mechanic: "welder",
+  construction: "general-labor",
+  carpenter: "formwork-carpenter",
+  gardener: "steel-worker",
+}
+
+export function resolveServiceId(serviceId: string) {
+  return SERVICE_ALIASES[serviceId] || serviceId
+}
+
+export function getServiceById(serviceId: string) {
+  const resolvedServiceId = resolveServiceId(serviceId)
+  return SERVICES.find((serviceItem) => serviceItem.id === resolvedServiceId)
+}
+
 export const URGENCY_OPTIONS = [
-  { id: "within-hour", label: "Within 1 Hour", multiplier: 2.0, tag: "Urgent" },
-  { id: "within-24h", label: "Within 24 Hours", multiplier: 1.5, tag: "Priority" },
-  { id: "specific-date", label: "Specific Date", multiplier: 1.0, tag: "Scheduled" },
+  { id: "within-hour", label: "Within 6-12 Hours", tag: "Priority" },
+  { id: "within-24h", label: "Within 24 Hours", tag: "Standard" },
+  { id: "specific-date", label: "Scheduled (Advanced)", tag: "Planned" },
 ] as const
 
 export const DURATION_OPTIONS = [
-  { id: "half-day", label: "Half Day", hours: 4, multiplier: 0.5 },
-  { id: "full-day", label: "Full Day", hours: 8, multiplier: 1.0 },
-  { id: "two-days", label: "2 Days", hours: 16, multiplier: 1.9 },
-  { id: "three-days", label: "3 Days", hours: 24, multiplier: 2.7 },
+  { id: "half-day", label: "Half Day (4 Hours)", hours: 4, days: 1, price: 5999 },
+  { id: "full-day", label: "Full Day (8 Hours)", hours: 8, days: 1, price: 9999 },
+  { id: "two-days", label: "Two Days", hours: 16, days: 2, price: 18999 },
+  { id: "three-days", label: "Three Days", hours: 24, days: 3, price: 24999 },
 ] as const
 
-export function calculateCost(serviceId: string, urgencyId: string, durationId: string): number {
-  const service = SERVICES.find((serviceItem) => serviceItem.id === serviceId)
-  const urgency = URGENCY_OPTIONS.find((urgencyItem) => urgencyItem.id === urgencyId)
+export const DISTANCE_FROM_BORELLA_OPTIONS = [
+  { id: "5km", label: "5 KM" },
+  { id: "10km", label: "10 KM" },
+  { id: "15km", label: "15 KM" },
+  { id: "20km", label: "20 KM" },
+  { id: "more", label: "More" },
+] as const
+
+export function calculateCost(
+  serviceId: string,
+  urgencyId: string,
+  durationId: string,
+  options?: {
+    workersNeeded?: number
+    needsSupervisor?: boolean
+    scheduledDates?: string[]
+  },
+): number {
+  const service = getServiceById(serviceId)
   const duration = DURATION_OPTIONS.find((durationItem) => durationItem.id === durationId)
 
-  if (!service || !urgency || !duration) return 0
+  if (!service || !duration) return 0
 
-  return Math.round(service.baseRate * urgency.multiplier * duration.multiplier)
+  const workersNeeded = Math.max(1, options?.workersNeeded || 1)
+  const isScheduled = urgencyId === "specific-date"
+  const scheduledDays = options?.scheduledDates?.length || 0
+
+  const laborCost = isScheduled
+    ? 9999 * workersNeeded * Math.max(0, scheduledDays)
+    : duration.price * workersNeeded
+
+  const supervisorDays = isScheduled ? scheduledDays : duration.days
+  const supervisorCost = options?.needsSupervisor ? supervisorDays * 6000 : 0
+
+  return laborCost + supervisorCost
 }
 
 export type RequestStatus =
@@ -64,6 +113,12 @@ export interface ServiceRequest {
   scheduledDate?: string
   duration: string
   otherInfo?: string
+  workersNeeded?: number
+  distanceFromBorella?: string
+  requesterPhoneSecondary?: string
+  scheduledDates?: string[]
+  needsSupervisor?: boolean
+  attachmentUrls?: string[]
   paymentMethod: "card" | "bank-transfer"
   paymentStatus: "pending" | "initiated" | "paid" | "verified" | "failed" | "cancelled"
   receiptUrl?: string

@@ -7,7 +7,7 @@ import { use, useEffect, useState } from "react"
 import { Logo } from "@/components/Logo"
 import { StatusBadge } from "@/components/StatusBadge"
 import { MOCK_REQUESTS } from "@/lib/mockData"
-import { type ServiceRequest, DURATION_OPTIONS, SERVICES, type RequestStatus, URGENCY_OPTIONS } from "@/lib/pricing"
+import { type ServiceRequest, DURATION_OPTIONS, getServiceById, type RequestStatus, URGENCY_OPTIONS } from "@/lib/pricing"
 
 const TIMELINE: { status: RequestStatus; label: string; icon: typeof Circle }[] = [
   { status: "pending", label: "Request Received", icon: Circle },
@@ -72,7 +72,7 @@ export default function TrackRequestPage({
   const activeRequest = request || MOCK_REQUESTS[0]
 
   const currentStatusIndex = STATUS_ORDER.indexOf(activeRequest.status)
-  const service = SERVICES.find((entry) => entry.id === activeRequest.serviceId)
+  const service = getServiceById(activeRequest.serviceId)
   const serviceLabel =
     activeRequest.serviceId === "other"
       ? activeRequest.customServiceName || "Other Service"

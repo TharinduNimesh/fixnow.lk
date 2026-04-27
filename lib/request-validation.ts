@@ -1,24 +1,31 @@
 import { z } from "zod"
 
-import { DURATION_OPTIONS, SERVICES, URGENCY_OPTIONS } from "@/lib/pricing"
+import { DISTANCE_FROM_BORELLA_OPTIONS, DURATION_OPTIONS, SERVICES, URGENCY_OPTIONS } from "@/lib/pricing"
 
 const serviceIds = SERVICES.map((service) => service.id) as [string, ...string[]]
 const urgencyIds = URGENCY_OPTIONS.map((urgency) => urgency.id) as [string, ...string[]]
 const durationIds = DURATION_OPTIONS.map((duration) => duration.id) as [string, ...string[]]
+const distanceIds = DISTANCE_FROM_BORELLA_OPTIONS.map((distance) => distance.id) as [string, ...string[]]
 
 export const requestCreateSchema = z
   .object({
     requesterName: z.string().trim().min(2).max(120),
     requesterEmail: z.string().trim().email(),
     requesterPhone: z.string().trim().min(7).max(32),
+    requesterPhoneSecondary: z.string().trim().min(7).max(32),
     requesterAddress: z.string().trim().min(3).max(255),
     requesterCity: z.string().trim().min(2).max(120),
     serviceId: z.enum(serviceIds),
     customServiceName: z.string().trim().max(120).optional().or(z.literal("")),
+    workersNeeded: z.coerce.number().int().min(1).max(50),
+    distanceFromBorella: z.enum(distanceIds),
     urgency: z.enum(urgencyIds),
     scheduledDate: z.string().optional().or(z.literal("")),
-    duration: z.enum(durationIds),
+    scheduledDates: z.array(z.string().trim().min(1)).max(31).optional(),
+    duration: z.enum(durationIds).optional(),
     otherInfo: z.string().trim().max(2000).optional().or(z.literal("")),
+    needsSupervisor: z.boolean().optional(),
+    termsAccepted: z.literal(true),
     paymentMethod: z.enum(["card", "bank-transfer"]),
     sourcePath: z.string().trim().max(255).optional().or(z.literal("")),
   })
@@ -31,11 +38,19 @@ export const requestCreateSchema = z
       })
     }
 
-    if (value.urgency === "specific-date" && !value.scheduledDate?.trim()) {
+    if (value.urgency === "specific-date" && !(value.scheduledDates && value.scheduledDates.length > 0)) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ["scheduledDate"],
-        message: "Please choose a schedule date.",
+        path: ["scheduledDates"],
+        message: "Please choose at least one schedule date.",
+      })
+    }
+
+    if (value.urgency !== "specific-date" && !value.duration) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["duration"],
+        message: "Please choose a work duration.",
       })
     }
   })

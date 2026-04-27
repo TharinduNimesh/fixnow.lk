@@ -58,6 +58,26 @@ export function mapRequestRow(row: RequestDbRow): ServiceRequest {
     payhereStatusCode: row.payhere_status_code,
     sourcePath: row.source_path,
     metadata: row.metadata || {},
+    workersNeeded: typeof row.metadata?.workersNeeded === "number" ? row.metadata.workersNeeded : undefined,
+    distanceFromBorella:
+      typeof row.metadata?.distanceFromBorella === "string"
+        ? row.metadata.distanceFromBorella
+        : undefined,
+    requesterPhoneSecondary:
+      typeof row.metadata?.requesterPhoneSecondary === "string"
+        ? row.metadata.requesterPhoneSecondary
+        : undefined,
+    scheduledDates:
+      Array.isArray(row.metadata?.scheduledDates) &&
+      row.metadata.scheduledDates.every((value) => typeof value === "string")
+        ? (row.metadata.scheduledDates as string[])
+        : undefined,
+    needsSupervisor: typeof row.metadata?.needsSupervisor === "boolean" ? row.metadata.needsSupervisor : undefined,
+    attachmentUrls:
+      Array.isArray(row.metadata?.attachmentUrls) &&
+      row.metadata.attachmentUrls.every((value) => typeof value === "string")
+        ? (row.metadata.attachmentUrls as string[])
+        : undefined,
     createdAt: row.created_at,
   }
 }
